@@ -46,8 +46,10 @@ unsigned long last_update = 0;
 vec mat = vec(5, 8);
 vec sectors = vec(16, 2);
 vec mapSize = vec(mat.x * sectors.x, mat.y * sectors.y);
+vec applePos;
 
 struct node *s_head = NULL;
+struct node *s_tail = NULL; 
 
 enum Direction {
   LEFT = 1,
@@ -56,7 +58,7 @@ enum Direction {
   UP = LEFT << 3,
 };
 
-Direction currDir = UP;
+Direction currDir;
 
 void initChar(byte* character)
 {
@@ -77,12 +79,16 @@ void initGameMap()
       initChar(SECTORS[j][i]);
     }
   }
+  
+  // Draws the apple
+  vec aSec = vec(applePos.x / mat.x, applePos.y / mat.y);
+  SECTORS[aSec.x][aSec.y][applePos.y - (aSec.y * mat.y)] |= (B10000 >> (applePos.x - (aSec.x * mat.x)));
  
   for (node* temp = s_head; temp != NULL; temp = temp->next)
   {
     vec p = vec(temp->pos.x, temp->pos.y);
     vec curr_sec = vec(p.x/mat.x, p.y/mat.y);
-    SECTORS[curr_sec.x][curr_sec.y][p.y - (curr_sec.y * mat.y)] = B10000 >> (p.x - (curr_sec.x * mat.x));
+    SECTORS[curr_sec.x][curr_sec.y][p.y - (curr_sec.y * mat.y)] |= B10000 >> (p.x - (curr_sec.x * mat.x));
     //byte x = B11111 << 10;
     //for (int i = 0; i < 5; i++) Serial.print(bitRead(x, i));
     //Serial.print(curr_sec.x); Serial.print(" "); Serial.println(curr_sec.y);
@@ -94,6 +100,7 @@ void initGameMap()
   {
     for (int j = 0; j < sectors.x; j++)
     {
+      bool pixel = false;
       for (int h = 0; h < mat.y; h++)
       {
         if (SECTORS[j][i][h])
@@ -102,49 +109,87 @@ void initGameMap()
           lcd.setCursor(j, i);
           lcd.write(byte(currChar));
           currChar++;
-          //Serial.println("fck");
+          pixel = true;
           break;
         }
-
+        
       }
+      
+      if (!pixel)
+      {
+        lcd.setCursor(j, i);
+        lcd.write(' ');
+      }
+
     }
   }
       
 }
 
+void repositionApple()
+{
+  applePos.x = random(0, mapSize.x);
+  applePos.y = random(0, mapSize.y);
+}
+
+struct node *addBody()
+{
+  struct node *newPart = new node();
+  struct node *last = s_tail->prev;
+  newPart->next = s_tail;
+  newPart->prev = last;
+  last->next = newPart;
+  s_tail->prev = newPart;
+  
+  return newPart;
+}
+
 void moveSnake()
 {
+  vec prevPos = vec(s_head->pos.x, s_head->pos.y);
+  
   switch (currDir)
   {
     case LEFT:
-      s_head->pos.x--;
+     if(s_head->pos.x == 0) {
+        s_head->pos.x = mapSize.x - 1;
+      }
+      else
+        s_head->pos.x--;
     break;
     case DOWN:
-      s_head->pos.y++;
+     if(s_head->pos.y == mapSize.y - 1) {
+       s_head->pos.y = 0;
+      }
+     else
+       s_head->pos.y++;
     break;
     case RIGHT:
+     if(s_head->pos.x == mapSize.x - 1) {
+       s_head->pos.x = 0;
+      }
       s_head->pos.x++;
     break;
     case UP:
+     if(s_head->pos.y == 0) {
+       s_head->pos.y = mapSize.y - 1;
+      }
+     else
       s_head->pos.y--;
     break;
   }
+  
+  for (node* temp = s_head->next; temp != NULL; temp = temp->next)
+  {
+    vec tempPos = vec(temp->pos.x, temp->pos.y);
+    temp->pos = vec(prevPos.x, prevPos.y);
+    prevPos = vec(tempPos.x, tempPos.y);
+  }
 }
 
-void control()
+void controlSnake()
 {
   if (A.isReleased())
-  {
-    if (currDir == LEFT)
-    {
-      currDir = UP;
-    }
-    else {
-      currDir = static_cast<Direction>(currDir << 1);
-      //Serial.println("fkoff");
-    }
-  }
-  else if (B.isReleased())
   {
     if (currDir == UP)
     {
@@ -154,6 +199,16 @@ void control()
       currDir = static_cast<Direction>(currDir << 1);
     }
   }
+  else if (B.isReleased())
+  {
+    if (currDir == LEFT)
+    {
+      currDir = UP;
+    }
+    else {
+      currDir = static_cast<Direction>(currDir >> 1);
+    }
+  }
 }
 
 void setup()
@@ -161,18 +216,42 @@ void setup()
   lcd.init();
   lcd.backlight();
   Serial.begin(9600);
-  //Serial.print();
-  //Serial.println();
+  randomSeed(analogRead(0));
+  
+  currDir = UP;
+  
   s_head = new node();
-  s_head->prev = NULL;
-  s_head->prev = NULL;
-  s_head->pos = vec(mapSize.x - 24, mapSize.y - 20);
+  s_tail = new node();
 
+  s_head->next = s_tail;
+  s_head->prev = NULL;
+  s_head->pos = vec(mapSize.x/2, mapSize.y - 4);
+  
+  s_tail->next = NULL;
+  s_tail->prev = s_head;
+  
+  struct node *body1 = addBody();
+  body1->pos = vec(s_head->pos.x, s_head->pos.y - 1);
+  repositionApple();
+  initGameMap();
+  
 }
 
 void loop()
 {
-  control();
-  moveSnake();
-  initGameMap();
+  controlSnake();
+  
+  unsigned long time = millis();
+  unsigned long elapsed = time - last_update;
+  last_update = time;
+  time_since_last_draw += elapsed;
+  if(time_since_last_draw >= MIN_DRAW_WAIT) {
+    moveSnake();
+    if(s_head->pos.x == applePos.x && s_head->pos.y == applePos.y) {
+      repositionApple();
+      addBody();
+    }
+    initGameMap();
+    time_since_last_draw = 0;
+  }
 }
