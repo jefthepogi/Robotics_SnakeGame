@@ -1,6 +1,6 @@
 #include <LiquidCrystal_I2C.h>
 
-LiquidCrystal_I2C lcd(32, 16, 2);
+LiquidCrystal_I2C lcd(0x27, 16, 2);
 
 struct vec {
   int x, y;
@@ -42,14 +42,16 @@ Button B(12);
 short time_since_last_draw = 0;
 const short MIN_DRAW_WAIT = 60;
 unsigned long last_update = 0;
+bool gameBegin = false;
 
 vec mat = vec(5, 8);
 vec sectors = vec(16, 2);
 vec mapSize = vec(mat.x * sectors.x, mat.y * sectors.y);
-vec applePos;
+vec applePos = vec(0, 0);
 
 struct node *s_head = NULL;
-struct node *s_tail = NULL; 
+struct node *s_tail = NULL;
+int n = 0; 
 
 enum Direction {
   LEFT = 1,
@@ -106,6 +108,7 @@ void initGameMap()
         if (SECTORS[j][i][h])
         {
           lcd.createChar(currChar, SECTORS[j][i]);
+          
           lcd.setCursor(j, i);
           lcd.write(byte(currChar));
           currChar++;
@@ -151,6 +154,7 @@ void moveSnake()
   switch (currDir)
   {
     case LEFT:
+    
      if(s_head->pos.x == 0) {
         s_head->pos.x = mapSize.x - 1;
       }
@@ -211,12 +215,27 @@ void controlSnake()
   }
 }
 
-void setup()
-{  
-  lcd.init();
-  lcd.backlight();
-  Serial.begin(9600);
-  randomSeed(analogRead(0));
+bool gameOver()
+{
+  for (node* temp = s_head->next; temp != NULL; temp = temp->next)
+  {
+    vec headPos = vec(s_head->pos.x, s_head->pos.y);
+    vec nodePos = vec(temp->pos.x, temp->pos.y);
+    if (headPos.x == nodePos.x && headPos.y == nodePos.y)
+    {
+      return true;
+    }
+  } 
+
+  return false;
+}
+
+void resetGame()
+{
+  for (node* temp = s_tail; temp != NULL; temp = temp->prev)
+  {
+    delete temp;
+  }
   
   currDir = UP;
   
@@ -232,26 +251,54 @@ void setup()
   
   struct node *body1 = addBody();
   body1->pos = vec(s_head->pos.x, s_head->pos.y - 1);
+
+}
+
+void setup()
+{  
+  lcd.init();
+  lcd.backlight();
+  Serial.begin(9600);;
+  randomSeed(analogRead(0));
+ 
+  lcd.setCursor(2,0);
+  lcd.print("SNAKE GAME");
+  lcd.setCursor(2,1);
+  lcd.print("by Group 5");
+  delay(2000);
+
+  resetGame();
   repositionApple();
   initGameMap();
-  
 }
 
 void loop()
 {
-  controlSnake();
-  
-  unsigned long time = millis();
-  unsigned long elapsed = time - last_update;
-  last_update = time;
-  time_since_last_draw += elapsed;
-  if(time_since_last_draw >= MIN_DRAW_WAIT) {
-    moveSnake();
-    if(s_head->pos.x == applePos.x && s_head->pos.y == applePos.y) {
-      repositionApple();
-      addBody();
+    controlSnake();
+
+    unsigned long time = millis();
+    unsigned long elapsed = time - last_update;
+    last_update = time;
+    time_since_last_draw += elapsed;
+    if(time_since_last_draw >= MIN_DRAW_WAIT) {
+      if(gameOver() && n > 0)
+      {
+        resetGame();
+        repositionApple();
+        n = -1;
+      }
+      moveSnake();
+      if(s_head->pos.x == applePos.x && s_head->pos.y == applePos.y) {
+        repositionApple();
+        addBody();
+      }
+      initGameMap();
+      time_since_last_draw = 0;
     }
-    initGameMap();
-    time_since_last_draw = 0;
+
+  if (n < 1) // to avoid triggering gameover again and again.
+  {
+    n++;
   }
+  
 }
